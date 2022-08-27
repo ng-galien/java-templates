@@ -81,9 +81,7 @@ public abstract class DefaultSharedCatalog<K extends Subject, T> extends Abstrac
 
     @Override
     protected Collection<CatalogItem<K, T>> setMyOwnList(Collection<CatalogItem<K, T>> catalogItems) {
-        catalogItems.forEach(item -> {
-            ownList.put(item.subject(), item);
-        });
+        catalogItems.forEach(item -> ownList.put(item.subject(), item));
         return ownList.values();
     }
 
@@ -91,7 +89,4 @@ public abstract class DefaultSharedCatalog<K extends Subject, T> extends Abstrac
     protected Collection<String> getAvailableTopics() {
         return topics.keySet();
     }
-
-
-
 }

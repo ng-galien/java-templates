@@ -1,5 +1,6 @@
 package org.example.catalog.test;
 
+import de.vandermeer.asciitable.AsciiTable;
 import org.example.catalog.*;
 import org.example.catalog.test.mock.ItemInfo;
 import org.example.catalog.test.mock.ItemPayload;
@@ -38,7 +39,7 @@ public class SharedCatalogTest {
         LOGGER.info(TEST_SEPARATOR, testInfo.getDisplayName());
     }
     @AfterEach
-    void tearDown(TestInfo testInfo) {
+    void tearDown() {
         LOGGER.info(TEST_SEPARATOR, "END");
         System.out.println("");
     }
@@ -53,7 +54,7 @@ public class SharedCatalogTest {
 
             @Override
             public void onAcknowledged(Subject topic, AckItem<ParticipantTest> ackItem) {
-                LOGGER.warn("onAcknowledged: topic={}, ackItem={}", topic, ackItem);
+                LOGGER.info("onAcknowledged: topic={}, ackItem={}", topic, ackItem);
             }
 
             @Override
@@ -185,9 +186,13 @@ public class SharedCatalogTest {
 
     private void printReport(AckReport<Subject, ParticipantTest> ackReport) {
         LOGGER.debug("Report");
+        AsciiTable table = new AsciiTable();
+        table.addRule();
+        table.addRow("Subject", "Status", "Deleted", "Participants", "Date");
         ackReport.items().forEach((id, item) -> {
-            LOGGER.debug(id + ": " + item);
+            table.addRow(id.topic()+":"+id.id(), item.ok(), item.deleted(), item.by().name(), item.when());
         });
+        LOGGER.debug("\n{}\n", table.render(150));
     }
 
 
@@ -215,5 +220,4 @@ public class SharedCatalogTest {
                         info -> createItem(info, otherParticipant))
                 .collect(Collectors.toList());
     }
-
 }

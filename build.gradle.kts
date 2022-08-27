@@ -17,6 +17,7 @@ dependencies {
     testRuntimeOnly("ch.qos.logback:logback-classic:1.2.11")
     testImplementation("org.apache.camel:camel-test-junit5:3.18.1")
     testImplementation("org.apache.camel:camel-endpointdsl:3.18.1")
+    testImplementation("de.vandermeer:asciitable:0.3.2")
 }
 
 tasks.test {

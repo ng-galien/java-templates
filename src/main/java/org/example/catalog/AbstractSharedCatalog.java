@@ -128,8 +128,11 @@ public abstract class AbstractSharedCatalog<K extends Subject, T> implements Sha
                         final AckItemRecord<T> ackItem = new AckItemRecord<>(true,
                                 otherItem.deleted(),
                                 item.owner(), item.date());
-                        saveAckStatus(otherItem.subject(), ackItem);
-                        onAcknowledged(otherItem.subject(), ackItem);
+                        if (saveAckStatus(otherItem.subject(), ackItem)) {
+                            onAcknowledged(otherItem.subject(), ackItem);
+                        } else {
+                            LOGGER.warn("Could not save ack status for {}", otherItem.subject());
+                        }
                     }
                 );
             }
@@ -179,4 +182,5 @@ public abstract class AbstractSharedCatalog<K extends Subject, T> implements Sha
     protected abstract Collection<CatalogItem<K, T>> fetchMyItems();
 
     protected abstract Collection<String> getAvailableTopics();
+
 }
