@@ -1,7 +1,6 @@
 package org.example.catalog;
 
 import java.util.Collection;
-import java.util.List;
 
 public interface SharedCatalog<K extends Subject, T> {
 
@@ -9,7 +8,7 @@ public interface SharedCatalog<K extends Subject, T> {
 
     void acceptForeignCatalogItem(CatalogItem<K, T> otherItem);
 
-    void acceptForeignCatalog(List<CatalogItem<K, T>> otherItem);
+    void acceptForeignCatalog(Collection<CatalogItem<K, T>> otherItem);
 
     void acknowledgeReceivedItem(CatalogItem<K, T>  otherItem);
 

@@ -1,6 +1,7 @@
 package org.example.catalog;
 
 import java.time.Instant;
+import java.time.temporal.TemporalAmount;
 
 public interface CatalogItem<K extends Subject, T> {
 
@@ -8,10 +9,12 @@ public interface CatalogItem<K extends Subject, T> {
 
     T owner();
 
-    boolean isDeleted();
+    boolean deleted();
 
-    Instant getTimestamp();
+    Instant date();
 
-    boolean isNewerThan(CatalogItem<K, T> otherItem);
+    default boolean isNewerThan(CatalogItem<K, T> otherItem, TemporalAmount timeDelta) {
+        return date().isAfter(otherItem.date().minus(timeDelta));
+    }
 
 }

@@ -6,6 +6,6 @@ public interface AckReport<K, T> {
 
     boolean ok();
 
-    Map<K, AckItem<T>> getItems();
+    Map<K, AckItem<T>> items();
 
 }

@@ -1,5 +1,6 @@
 package org.example.catalog;
 
+import java.time.temporal.TemporalAmount;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -8,23 +9,29 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class DefaultSharedCatalog<K extends Subject, T> extends AbstractSharedCatalog<K, T> {
 
-    public DefaultSharedCatalog(T owner) {
-        super(owner);
+    private final Map<K, CatalogItem<K, T>> ownList = new ConcurrentHashMap<>();
+    private final Map<K, CatalogItem<K, T>> sendList = new ConcurrentHashMap<>();
+    private final Map<K, CatalogItem<K, T>> expectedList = new ConcurrentHashMap<>();
+
+    private final Map<K, AckItem<T>> ackList = new ConcurrentHashMap<>();
+
+    protected final Map<String, Boolean> topics = new ConcurrentHashMap<>();
+
+    public DefaultSharedCatalog(T owner, TemporalAmount quietPeriod) {
+        super(owner, quietPeriod);
+    }
+
+    @Override
+    protected void reset() {
+        ownList.clear();
+        sendList.clear();
+        expectedList.clear();
+        ackList.clear();
     }
 
     @Override
     public Optional<CatalogItem<K, T>> findInMyList(final CatalogItem<K, T> otherItem) {
         return Optional.ofNullable(ownList.get(otherItem.subject()));
-    }
-
-    @Override
-    protected void addToNewerList(CatalogItem<K, T> item) {
-        newerList.put(item.subject(), item);
-    }
-
-    @Override
-    protected boolean existsInNewerList(CatalogItem<K, T> item) {
-        return newerList.containsKey(item.subject());
     }
 
     @Override
@@ -74,7 +81,6 @@ public abstract class DefaultSharedCatalog<K extends Subject, T> extends Abstrac
 
     @Override
     protected Collection<CatalogItem<K, T>> setMyOwnList(Collection<CatalogItem<K, T>> catalogItems) {
-        ownList.clear();
         catalogItems.forEach(item -> {
             ownList.put(item.subject(), item);
         });
@@ -86,14 +92,6 @@ public abstract class DefaultSharedCatalog<K extends Subject, T> extends Abstrac
         return topics.keySet();
     }
 
-    private final Map<K, CatalogItem<K, T>> ownList = new ConcurrentHashMap<>();
-    private final Map<K, CatalogItem<K, T>> sendList = new ConcurrentHashMap<>();
-    private final Map<K, CatalogItem<K, T>> expectedList = new ConcurrentHashMap<>();
 
-    private final Map<K, CatalogItem<K, T>> newerList = new ConcurrentHashMap<>();
-
-    private final Map<K, AckItem<T>> ackList = new ConcurrentHashMap<>();
-
-    protected final Map<String, Boolean> topics = new ConcurrentHashMap<>();
 
 }

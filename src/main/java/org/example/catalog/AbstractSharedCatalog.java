@@ -3,8 +3,9 @@ package org.example.catalog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
+import java.time.temporal.TemporalAmount;
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -14,14 +15,18 @@ public abstract class AbstractSharedCatalog<K extends Subject, T> implements Sha
 
     protected final T owner;
 
-    public AbstractSharedCatalog(final T owner) {
+    private final TemporalAmount quietPeriod;
+
+    public AbstractSharedCatalog(final T owner, TemporalAmount quietPeriod) {
         this.owner = owner;
+        this.quietPeriod = quietPeriod;
     }
 
     public void start() {
-        LOGGER.debug("Starting catalog");
+        LOGGER.info("Starting catalog");
+        reset();
         setMyOwnList(fetchMyItems()).forEach(item -> {
-                if (isTopicSupported(item) && !item.isDeleted()) {
+                if (isTopicSupported(item) && !item.deleted()) {
                     addToSendList(item);
                 }
             }
@@ -45,31 +50,60 @@ public abstract class AbstractSharedCatalog<K extends Subject, T> implements Sha
             LOGGER.warn("The owners are identical: {}", owner);
             return;
         }
-        Optional<CatalogItem<K, T>> found = findInMyList(otherItem);
-        if (found.isPresent()) {
-            CatalogItem<K, T> myItem = found.get();
-            if (otherItem.isNewerThan(myItem)) {
-                removeFromSendList(myItem);
-                addToNewerList(otherItem);
-                addToExpectedList(otherItem);
-            } else {
-                if (!otherItem.isDeleted()) {
-                    removeFromSendList(myItem);
+        Optional<CatalogItem<K, T>> fromMe = findInMyList(otherItem);
+        Optional<CatalogItem<K, T>> fromExpected = fromExpectedList(otherItem);
+        if (fromMe.isPresent()) {
+            //State: item is in both catalogs
+            CatalogItem<K, T> myItem = fromMe.get();
+            if (fromExpected.isPresent()) {
+                //State: items are in both catalogs and another participant has a newer version
+                if (otherItem.isNewerThan(fromExpected.get(), quietPeriod)) {
+                    //State: items are in both catalogs and item is expected and the current participant supplied a newer version
+                    removeFromExpectedList(fromExpected.get());
+                    addToExpectedList(otherItem);
                 } else {
-                    if(!existsInNewerList(otherItem)) {
-                        addToSendList(myItem);
-                    }
+                    //State: items are in both catalogs and item is expected and the current participant supplied an older version
+                    //Nothing to do
+                }
+            } else {
+                //State: items are in both catalogs and no one has a newer version
+                if (otherItem.isNewerThan(myItem, quietPeriod)) {
+                    //State: items are in both catalogs and no one has a newer version and the current participant supplied a newer version
+                    removeFromSendList(myItem);
+                    addToExpectedList(otherItem);
+                } else {
+                    //State: items are in both catalogs and no one has a newer version and the current participant supplied an older version
+                    //Nothing to do
                 }
             }
         } else {
-            if (!otherItem.isDeleted()) {
-                addToExpectedList(otherItem);
+            //State: item is not in my catalog
+            if (fromExpected.isPresent()) {
+                //State: item is not in my catalog and item is expected
+                if (otherItem.isNewerThan(fromExpected.get(), quietPeriod)) {
+                    //State: item is not in my catalog and item is expected and the current participant supplied a newer version
+                    removeFromExpectedList(fromExpected.get());
+                    addToExpectedList(otherItem);
+                } else {
+                    //State: item is not in my catalog and item is expected and the current participant supplied an older version
+                    //Nothing to do
+                }
+            } else {
+                //State: item is not in my catalog and item is not expected
+                if (otherItem.deleted()) {
+                    //State: item is not in my catalog and item is not expected and the current participant supplied a deleted item
+                    addToExpectedList(otherItem);
+                } else {
+                    //State: item is not in my catalog and item is not expected and the current participant supplied a new item
+                    addToExpectedList(otherItem);
+                }
             }
         }
     }
 
     @Override
-    public void acceptForeignCatalog(List<CatalogItem<K, T>> otherItem) {
+    public void acceptForeignCatalog(Collection<CatalogItem<K, T>> otherItem) {
+        LOGGER.info("Accepting foreign catalog");
         otherItem.parallelStream().forEach(this::acceptForeignCatalogItem);
     }
 
@@ -77,16 +111,27 @@ public abstract class AbstractSharedCatalog<K extends Subject, T> implements Sha
     public void acknowledgeReceivedItem(CatalogItem<K, T> otherItem) {
         LOGGER.trace("Acknowledging received item {}", otherItem);
         fromExpectedList(otherItem).ifPresent(found -> {
-            if (found.isDeleted() == otherItem.isDeleted()) {
-                    removeFromExpectedList(found).ifPresent(item -> {
-                            final DefaultAckItem<T> ackItem = new DefaultAckItem<>(true,
-                                    otherItem.isDeleted(),
-                                    item.owner(), item.getTimestamp());
-                            saveAckStatus(otherItem.subject(), ackItem);
-                            onAcknowledged(otherItem.subject(), ackItem);
-                        }
-                    );
+                if (found.isNewerThan(otherItem, quietPeriod)) {
+                    LOGGER.warn("Received item is older than expected item: {}, difference is {}", otherItem,
+                            Duration.between(otherItem.date(), found.date()));
+                    return;
                 }
+                if (found.deleted() != otherItem.deleted()) {
+                    LOGGER.warn("Received item is not deleted but expected item is deleted: {}", otherItem);
+                    return;
+                }
+                if (!found.owner().equals(otherItem.owner())) {
+                    LOGGER.warn("Received item has different owner than expected item: {}", otherItem);
+                    return;
+                }
+                removeFromExpectedList(found).ifPresent(item -> {
+                        final AckItemRecord<T> ackItem = new AckItemRecord<>(true,
+                                otherItem.deleted(),
+                                item.owner(), item.date());
+                        saveAckStatus(otherItem.subject(), ackItem);
+                        onAcknowledged(otherItem.subject(), ackItem);
+                    }
+                );
             }
         );
     }
@@ -100,24 +145,22 @@ public abstract class AbstractSharedCatalog<K extends Subject, T> implements Sha
     public AckReport<K, T> getAckReport() {
         final Map<K, AckItem<T>> ackStatus = fetchAckState();
         final Collection<CatalogItem<K, T>> expected = fetchExpectedList();
-        expected.forEach(item -> ackStatus.put(item.subject(), new DefaultAckItem<>(
+        expected.forEach(item -> ackStatus.put(item.subject(), new AckItemRecord<>(
                 false,
-                item.isDeleted(),
+                item.deleted(),
                 item.owner(),
-                item.getTimestamp())
+                item.date())
         ));
-        return new DefaultAckReport<>(expected.isEmpty(), ackStatus);
+        return new AckReportRecord<>(expected.isEmpty(), ackStatus);
     }
+
+    protected abstract void reset();
 
     protected abstract Collection<CatalogItem<K, T>> setMyOwnList(Collection<CatalogItem<K, T>> items);
 
     protected abstract Optional<CatalogItem<K, T>> findInMyList(CatalogItem<K, T> otherItem);
 
     protected abstract void addToSendList(CatalogItem<K, T> item);
-
-    protected abstract void addToNewerList(CatalogItem<K, T> item);
-
-    protected abstract boolean existsInNewerList(CatalogItem<K, T> item);
 
     protected abstract void removeFromSendList(CatalogItem<K, T> item);
 
